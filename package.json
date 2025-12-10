@@ -3,13 +3,24 @@
   "version": "1.0.50",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "bun run --watch src/index.ts"
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun run src/index.ts"
   },
   "dependencies": {
-    "elysia": "latest"
+    "@google/genai": "^1.32.0",
+    "better-sqlite3": "^12.5.0",
+    "elysia": "latest",
+    "openai": "^6.10.0",
+    "sqlite-vec": "^0.1.7-alpha.2",
+    "sqlite-vec-darwin-arm64": "^0.1.7-alpha.2",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.0.0",
+    "@types/sqlite3": "^5.1.0",
+    "bun-types": "latest",
+    "typescript": "^5.9.3"
   },
   "module": "src/index.js"
 }

@@ -5,6 +5,9 @@
 /.pnp
 .pnp.js
 
+.env
+.env*
+
 # testing
 /coverage
 
@@ -40,3 +43,11 @@ yarn-error.log*
 **/*.log
 package-lock.json
 **/*.bun
+
+
+# db
+
+memori.db-shm
+memori.db-wal   
+memori.db
+
