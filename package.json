@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "test": "bun test",
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external sqlite3",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external sqlite3 && tsc",
     "start": "bun run dist/index.js"
   },
   "description": "SQL-Native AI Memory Fabric for JavaScript/TypeScript, powered by sqlite-vec and Google GenAI.",
