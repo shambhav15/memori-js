@@ -37,6 +37,19 @@ const response = await client.chat.completions.create({
 });
 ```
 
+## Database Connection
+
+By default, `memori-js` creates a local SQLite database named `memori.db` in your current working directory.
+
+To use a custom path or an existing database:
+
+```typescript
+// Connects to ./custom/path/memory.db
+const memori = new Memori({
+  dbPath: "./custom/path/memory.db",
+});
+```
+
 ## Configuration
 
 Ensure you have your API keys set in your environment variables:
