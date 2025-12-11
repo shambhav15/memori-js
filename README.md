@@ -31,22 +31,22 @@ await client.chat.completions.create({ ... });
 
 ### Memori vs. Standard Vector DBs
 
-| Feature          | Standard Vector DB                                  | 🧠 Memori-JS                                                                   |
-| :--------------- | :-------------------------------------------------- | :----------------------------------------------------------------------------- |
-| **Setup**        | Requires Docker, API keys, or cloud infrastructure. | **Zero-Config**. Creates a local `memori.db` SQLite file instantly.            |
-| **Integration**  | You write the RAG pipeline logic manually.          | **Auto-Augmentation**. Patches the LLM client to inject memory automatically.  |
-| **Architecture** | External service (Network latency).                 | **Embedded**. Runs in-process via `sqlite-vec` (high-performance C extension). |
-| **Data Privacy** | Data leaves your server.                            | **100% Local**. Your data never leaves your infrastructure.                    |
-| **Complexity**   | High (Embeddings, Chunking, Retrieval).             | **Low**. Handles embedding generation and retrieval internally.                |
+| Feature         | Standard Vector DB                                  | 🧠 Memori-JS                                                                  |
+| :-------------- | :-------------------------------------------------- | :---------------------------------------------------------------------------- |
+| **Setup**       | Requires Docker, API keys, or cloud infrastructure. | **Zero-Config**. Creates a local `memori.db` SQLite file instantly.           |
+| **Scalability** | Manual migration needed.                            | **Pluggable**. Scale from local SQLite to Postgres/Supabase seamlessly.       |
+| **Integration** | You write the RAG pipeline logic manually.          | **Auto-Augmentation**. Patches the LLM client to inject memory automatically. |
+| **Complexity**  | High (Embeddings, Chunking, Retrieval).             | **Low**. Handles embedding generation and retrieval internally.               |
 
 ---
 
 ## ✨ Features
 
 - **🔌 Provider Agnostic**: Works seamlessly with **OpenAI**, **Google GenAI**, and **Anthropic**.
-- **⚡ SQL-Native Performance**: Powered by `sqlite-vec`, the state-of-the-art vector search extension for SQLite. Fast, reliable, and ACID-compliant.
-- **🤖 Zero-Shot RAG**: Your older conversations automatically become context for new ones. No training required.
-- **📊 Execution Stats**: Built-in metrics to measure context retrieval time and token usage optimization.
+- **☁️ Cloud Ready**: Switch between **Local SQLite** (default) or **Postgres** (Supabase, Neon) with one line of config.
+- **🛡️ Enterprise Quality**: Built-in **Arktype** validation, **Structured Logging**, and typed Error Handling.
+- **⚡ SQL-Native Performance**: Powered by `sqlite-vec` locally or `pgvector` in the cloud.
+- **🤖 Zero-Shot RAG**: Your older conversations automatically become context for new ones.
 
 ---
 
@@ -64,13 +64,27 @@ bun add memori-js
 
 ### 1. Initialize
 
+#### Option A: Zero Config (Local SQLite)
+
 ```typescript
 import { Memori } from "memori-js";
 
-// Uses ./memori.db by default
 const memori = new Memori({
   googleApiKey: process.env.GOOGLE_API_KEY, // Required for embedding generation
 });
+```
+
+#### Option B: Cloud Scalability (Postgres)
+
+```typescript
+import { Memori, PostgresVecStore } from "memori-js";
+
+const memori = new Memori({
+  googleApiKey: process.env.GOOGLE_API_KEY,
+  // Seamlessly switch to Postgres for production
+  vectorStore: new PostgresVecStore(process.env.DATABASE_URL!),
+});
+await memori.config.storage.build(); // Initializes tables if missing
 ```
 
 ### 2. Connect Your LLM
@@ -99,11 +113,6 @@ import { GoogleGenAI } from "@google/genai";
 const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 
 memori.llm.register(client, "google");
-
-const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
-const result = await model.generateContent(
-  "What is the secret code I told you?"
-);
 ```
 
 #### Anthropic (Claude)
@@ -113,26 +122,37 @@ import Anthropic from "@anthropic-ai/sdk";
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 memori.llm.register(client, "anthropic");
-
-const msg = await client.messages.create({
-  model: "claude-3-opus",
-  messages: [{ role: "user", content: "Recall our last meeting notes." }],
-});
 ```
 
-### 3. Analyze Performance
+### 3. Advanced Configuration
 
-Check how `memori` is optimizing your interactions:
+memori-js uses **Arktype** for ultra-fast runtime validation and strict typing.
 
 ```typescript
-console.log(memori.stats.lastRun);
-/*
-{
-  contextChunks: 5,        // Found 5 relevant past memories
-  processingTimeMs: 42,    // Retrieval took only 42ms
-  timestamp: "2024-12-11T..."
-}
+import { ConsoleLogger } from "memori-js";
+
+const memori = new Memori({
+  googleApiKey: "...",
+  dbPath: "./custom-memory.db",
+  logger: new ConsoleLogger(), // Or pass your own Pino/Winston wrapper
+});
 */
+```
+
+### 4. Advanced Augmentation (Multi-Tenancy)
+
+For multi-user apps (chatbots, agents), you can isolate memory by User ID and Agent ID.
+
+```typescript
+// Define context for the current operation
+memori.attribution("user-123", "agent-sales");
+
+// All subsequent operations are scoped to this user
+await memori.addMemory("I like apples."); // Stored with metadata
+
+// Search is filtered automatically
+const results = await memori.search("What do I like?");
+// returns "I like apples." ONLY for user-123
 ```
 
 ---
@@ -141,7 +161,7 @@ console.log(memori.stats.lastRun);
 
 Most "Memory" libraries are just complex wrappers around vector stores. `memori-js` takes a different approach: **Memory should be invisible.**
 
-As a developer, you shouldn't care _how_ the relevant context is found, only that your agent _has_ it. By pushing this logic down into the infrastructure layer (SQLite) and the client layer (Patching), we allow you to build complex, stateful agents with simple, stateless code.
+As a developer, you shouldn't care _how_ the relevant context is found, only that your agent _has_ it. By pushing this logic down into the infrastructure layer (SQLite/Postgres) and the client layer (Patching), we allow you to build complex, stateful agents with simple, stateless code.
 
 ---
 

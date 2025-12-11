@@ -1,11 +1,20 @@
-import { MemoriDB } from "./db";
+import { type } from "arktype";
+import { SqliteVecStore } from "../stores/sqlite";
+import { VectorStore } from "./types";
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
+import { Logger, ConsoleLogger } from "./logger";
+import { ConfigurationError, EmbeddingError, VectorStoreError } from "./errors";
 
-export interface MemoriOptions {
-  dbPath?: string;
-  googleApiKey?: string;
-}
+// ArkType Validation Definition
+const MemoriConfig = type({
+  "dbPath?": "string",
+  "googleApiKey?": "string",
+  "vectorStore?": "unknown",
+  "logger?": "unknown",
+});
+
+export type MemoriOptions = typeof MemoriConfig.infer;
 
 export type LLMProvider = "openai" | "google" | "anthropic";
 
@@ -18,13 +27,20 @@ export interface ExecutionStats {
 }
 
 export class Memori {
-  private db: MemoriDB;
+  private db: VectorStore;
   private client: GoogleGenAI;
+  private logger: Logger;
   private entityId: string | null = null;
   private processId: string | null = null;
   private pendingPromises: Promise<any>[] = [];
 
-  public stats: ExecutionStats = {};
+  public stats: {
+    lastRun?: {
+      contextChunks: number;
+      processingTimeMs: number;
+      timestamp: string;
+    };
+  } = {};
 
   public config: {
     storage: {
@@ -33,7 +49,10 @@ export class Memori {
   };
 
   public llm: {
-    register: (client: any, provider?: LLMProvider) => Memori;
+    register: (
+      client: any,
+      provider?: "openai" | "google" | "anthropic"
+    ) => Memori;
   };
 
   public augmentation: {
@@ -41,18 +60,44 @@ export class Memori {
   };
 
   constructor(options: MemoriOptions = {}) {
-    this.db = new MemoriDB(options.dbPath);
+    // Validate Options
+    const result = MemoriConfig(options);
+    if (result instanceof type.errors) {
+      throw new ConfigurationError(
+        `Invalid Memori configuration: ${result.summary}`
+      );
+    }
 
-    const apiKey = options.googleApiKey || process.env.GOOGLE_API_KEY;
+    const config = result;
+
+    // Logger Init
+    this.logger = (config.logger as Logger) || new ConsoleLogger();
+
+    // Dependency Injection / Factory Pattern
+    if (config.vectorStore) {
+      this.db = config.vectorStore as VectorStore;
+    } else {
+      // Default Backward Compatibility
+      this.db = new SqliteVecStore(config.dbPath, this.logger);
+      this.db
+        .init()
+        .catch((e) => this.logger.error("Failed to init default DB:", e));
+    }
+
+    const apiKey = config.googleApiKey || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
-      throw new Error("GOOGLE_API_KEY is required for embeddings.");
+      throw new ConfigurationError(
+        "GOOGLE_API_KEY is required for embeddings."
+      );
     }
 
     this.client = new GoogleGenAI({ apiKey });
 
     this.config = {
       storage: {
-        build: async () => Promise.resolve(),
+        build: async () => {
+          await this.db.init();
+        },
       },
     };
 
@@ -61,7 +106,10 @@ export class Memori {
         if (provider === "openai") this.patchOpenAI(client);
         else if (provider === "anthropic") this.patchAnthropic(client);
         else if (provider === "google") this.patchGoogle(client);
-        else throw new Error(`Provider ${provider} not supported yet.`);
+        else
+          throw new ConfigurationError(
+            `Provider ${provider} not supported yet.`
+          );
 
         return this;
       },
@@ -94,7 +142,8 @@ export class Memori {
           .join("\n");
       }
     } catch (e) {
-      console.error("Memori search failed:", e);
+      this.logger.error("Memori search failed:", e);
+      // Fail gracefully for context retrieval
     }
 
     this.stats.lastRun = {
@@ -290,12 +339,21 @@ export class Memori {
 
   async addMemory(content: string, role = "user") {
     const embedding = await this.getEmbedding(content);
-    return await this.db.insert(content, embedding, role);
+    return await this.db.insert(content, embedding, {
+      role,
+      entityId: this.entityId || undefined,
+      processId: this.processId || undefined,
+      // sessionId: this.sessionId // TODO: Add session management
+    });
   }
 
   async search(query: string, limit = 5) {
     const embedding = await this.getEmbedding(query);
-    return await this.db.search(embedding, limit);
+    const filter = {
+      entityId: this.entityId || undefined,
+      processId: this.processId || undefined,
+    };
+    return await this.db.search(embedding, limit, filter);
   }
 
   private async getEmbedding(text: string): Promise<number[]> {
