@@ -7,10 +7,28 @@
     "build": "bun build ./src/index.ts --outdir ./dist --target bun --external sqlite3",
     "start": "bun run dist/index.js"
   },
+  "description": "SQL-Native AI Memory Fabric for JavaScript/TypeScript, powered by sqlite-vec and Google GenAI.",
+  "license": "MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/memori-js.git"
+  },
+  "keywords": [
+    "ai",
+    "memory",
+    "vector-database",
+    "sqlite",
+    "embeddings",
+    "rag",
+    "agent"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "@google/genai": "^1.32.0",
