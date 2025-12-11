@@ -50,15 +50,54 @@ const memori = new Memori({
 });
 ```
 
-## Configuration
+## Supported Providers
 
-Ensure you have your API keys set in your environment variables:
+`memori-js` can patch clients from OpenAI, Google, and Anthropic to automatically inject memory.
 
-```bash
-export GOOGLE_API_KEY="your_google_key" # Required for embeddings
-export OPENAI_API_KEY="your_openai_key" # Required if using OpenAI for chat
+### OpenAI
+
+```typescript
+import OpenAI from "openai";
+// ...
+memori.llm.register(openaiClient, "openai");
 ```
 
-## License
+### Google GenAI
+
+```typescript
+import { GoogleGenAI } from "@google/genai";
+const client = new GoogleGenAI({ apiKey: "..." });
+
+// Register the client BEFORE creating models
+memori.llm.register(client, "google");
+
+// Now use the client as normal
+const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+const result = await model.generateContent("Hello!");
+```
+
+### Anthropic
+
+```typescript
+import Anthropic from "@anthropic-ai/sdk";
+const client = new Anthropic({ apiKey: "..." });
+
+memori.llm.register(client, "anthropic");
+```
+
+## Execution Stats
+
+You can inspect `memori.stats` to see metrics about the last run, useful for comparing "Zero-Shot" vs "Memory-Augmented" performance.
+
+```typescript
+console.log(memori.stats.lastRun);
+// {
+//   contextChunks: 3,        // Number of memory chunks injected
+//   processingTimeMs: 120,   // Time taken to retrieve context
+//   timestamp: "..."
+// }
+```
+
+## Database Connection
 
 MIT

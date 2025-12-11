@@ -4,9 +4,10 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "test": "bun test",
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external sqlite3 && tsc",
+    "build": "bun build ./src/index.ts --outdir ./dist --target node --external sqlite3 && tsc",
     "start": "bun run dist/index.js"
   },
+  "type": "module",
   "description": "SQL-Native AI Memory Fabric for JavaScript/TypeScript, powered by sqlite-vec and Google GenAI.",
   "license": "MIT",
   "author": "",
@@ -24,6 +25,13 @@
     "agent"
   ],
   "main": "dist/index.js",
+  "module": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "types": "dist/index.d.ts",
   "files": [
     "dist",
@@ -50,6 +58,5 @@
     "@types/sqlite3": "^5.1.0",
     "bun-types": "latest",
     "typescript": "^5.9.3"
-  },
-  "module": "src/index.js"
+  }
 }
