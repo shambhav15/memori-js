@@ -4,6 +4,15 @@
 
 `memori-js` is not just a vector database wrapper. It is an **active memory layer** that lives inside your application, automatically managing context for your AI agents. It bridges the gap between your LLM and long-term storage without the complexity of building manual RAG (Retrieval-Augmented Generation) pipelines.
 
+<div align="center">
+  <h3>
+    <a href="https://memori-ts.vercel.app/">🌐 Website</a> | 
+    <a href="https://memori-ts.vercel.app/docs">📚 Documentation</a>
+  </h3>
+</div>
+
+---
+
 > **Inspired by the [memorilabs.ai](https://memorilabs.ai) Python library.**
 
 ---
