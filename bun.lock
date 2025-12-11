@@ -10,7 +10,6 @@
         "elysia": "latest",
         "openai": "^6.10.0",
         "sqlite-vec": "^0.1.7-alpha.2",
-        "sqlite-vec-darwin-arm64": "^0.1.7-alpha.2",
         "sqlite3": "^5.1.7",
       },
       "devDependencies": {
@@ -19,6 +18,12 @@
         "@types/sqlite3": "^5.1.0",
         "bun-types": "latest",
         "typescript": "^5.9.3",
+      },
+      "optionalDependencies": {
+        "sqlite-vec-darwin-arm64": "^0.1.7-alpha.2",
+        "sqlite-vec-darwin-x64": "^0.1.7-alpha.2",
+        "sqlite-vec-linux-x64-gnu": "^0.1.7-alpha.2",
+        "sqlite-vec-win32-x64": "^0.1.7-alpha.2",
       },
     },
   },

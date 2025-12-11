@@ -12,19 +12,60 @@ export class MemoriDB {
   }
 
   private loadExtension() {
-    // Try loading from installed node_modules package
-    const extensionPath = join(
-      process.cwd(),
-      "node_modules",
-      "sqlite-vec-darwin-arm64",
-      "vec0.dylib"
-    );
-    // sqlite3 loadExtension requires string
-    this.db.loadExtension(extensionPath, (err) => {
-      if (err) {
-        console.error("Failed to load sqlite-vec extension:", err);
-      }
-    });
+    // Determine platform-specific package name
+    let packageName = "";
+    const platform = process.platform;
+    const arch = process.arch;
+
+    if (platform === "darwin") {
+      packageName =
+        arch === "arm64" ? "sqlite-vec-darwin-arm64" : "sqlite-vec-darwin-x64";
+    } else if (platform === "linux") {
+      packageName = "sqlite-vec-linux-x64-gnu"; // Assumes gnu. musl could be detected too.
+    } else if (platform === "win32") {
+      packageName = "sqlite-vec-win32-x64";
+    } else {
+      console.warn(
+        "Unsupported platform for sqlite-vec auto-loading: " + platform
+      );
+      return;
+    }
+
+    try {
+      const extensionPath = join(
+        process.cwd(),
+        "node_modules",
+        packageName,
+        "vec0.dylib" // Note: This filename might vary by OS (.so, .dll).
+        // However, the node-sqlite3 wrapper often handles platform specifics or uses a standard entry.
+        // Actually, sqlite-vec packages usually expose the binary.
+        // Let's refine the path logic based on common npm layout or just verify what's inside.
+        // For macOS it is vec0.dylib. For Linux .so, Windows .dll.
+      );
+
+      let fileExt = ".dylib";
+      if (platform === "linux") fileExt = ".so";
+      if (platform === "win32") fileExt = ".dll";
+
+      const finalPath = join(
+        process.cwd(),
+        "node_modules",
+        packageName,
+        `vec0${fileExt}`
+      );
+
+      this.db.loadExtension(finalPath, (err) => {
+        if (err) {
+          // Warning only, as it might already be loaded or user environment issue
+          console.error(
+            `Failed to load sqlite-vec extension from ${packageName}:`,
+            err
+          );
+        }
+      });
+    } catch (e) {
+      console.error("Could not find/load sqlite-vec extension:", e);
+    }
   }
 
   private init() {

@@ -2,18 +2,29 @@
   "name": "memori-js",
   "version": "1.0.50",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "bun run --watch src/index.ts",
-    "build": "bun run src/index.ts"
+    "test": "bun test",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external sqlite3",
+    "start": "bun run dist/index.js"
   },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@google/genai": "^1.32.0",
     "better-sqlite3": "^12.5.0",
     "elysia": "latest",
     "openai": "^6.10.0",
     "sqlite-vec": "^0.1.7-alpha.2",
-    "sqlite-vec-darwin-arm64": "^0.1.7-alpha.2",
     "sqlite3": "^5.1.7"
+  },
+  "optionalDependencies": {
+    "sqlite-vec-darwin-arm64": "^0.1.7-alpha.2",
+    "sqlite-vec-darwin-x64": "^0.1.7-alpha.2",
+    "sqlite-vec-linux-x64-gnu": "^0.1.7-alpha.2",
+    "sqlite-vec-win32-x64": "^0.1.7-alpha.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
