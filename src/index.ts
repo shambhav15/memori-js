@@ -26,6 +26,9 @@ export * from "./core/types";
 // Error Handling
 export * from "./core/errors";
 
+// Embedding Providers
+export * from "./embeddings";
+
 // Logging
 export * from "./core/logger";
 

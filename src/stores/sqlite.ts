@@ -17,14 +17,17 @@ export class SqliteVecStore implements VectorStore {
   public db: sqlite3.Database;
   private dbPath: string;
   private logger: Logger;
+  private dimension: number;
 
   /**
    * @param path - File path for the database. Defaults to "memori.db". Use ":memory:" for ephemeral storage.
    * @param logger - Logger instance.
+   * @param dimension - Vector dimension size. Defaults to 768.
    */
-  constructor(path = "memori.db", logger?: Logger) {
+  constructor(path = "memori.db", logger?: Logger, dimension = 768) {
     this.dbPath = path;
     this.logger = logger || new ConsoleLogger();
+    this.dimension = dimension;
     // We do NOT initialize in constructor anymore to match async init() pattern
     // But sqlite3 sync constructor is fine, we just move "init logic" to init()
     this.db = new sqlite3.Database(this.dbPath);
@@ -44,10 +47,10 @@ export class SqliteVecStore implements VectorStore {
         this.db.run("PRAGMA journal_mode = WAL;");
 
         // 2. Create Vector Virtual Table (vec0)
-        // supporting 768 dimensions (Google text-embedding-004 standard)
+        // supporting variable dimensions
         this.db.run(`
             CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
-              embedding float[768]
+              embedding float[${this.dimension}]
             );
           `);
 

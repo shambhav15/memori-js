@@ -90,3 +90,16 @@ export interface VectorStore {
    */
   close(): Promise<void>;
 }
+
+/**
+ * Interface for embedding providers.
+ * Allows users to supply their own embedding logic (e.g. OpenAI, Google, CoHere, locally).
+ */
+export interface EmbeddingProvider {
+  /**
+   * Generates a vector embedding for the given text.
+   * @param text - The text to embed.
+   * @returns A promise resolving to the vector embedding (array of numbers).
+   */
+  embed(text: string): Promise<number[]>;
+}

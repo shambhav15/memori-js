@@ -7,8 +7,8 @@ class GoogleOpenAIAdapter {
   private googleClient: GoogleGenAI;
 
   constructor() {
-    if (!process.env.GOOGLE_API_KEY) throw new Error("GOOGLE_API_KEY required");
-    this.googleClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+    if (!process.env.MEMORI_API_KEY) throw new Error("MEMORI_API_KEY required");
+    this.googleClient = new GoogleGenAI({ apiKey: process.env.MEMORI_API_KEY });
   }
 
   chat = {
@@ -74,7 +74,7 @@ async function main() {
   const client = new GoogleOpenAIAdapter();
 
   console.log("Initializing Memori...");
-  // Assumes GOOGLE_API_KEY is set in env for embeddings
+  // Assumes MEMORI_API_KEY is set in env for embeddings
   const memori = new Memori().llm.register(client as any);
 
   memori.attribution("user-123", "demo-process");
