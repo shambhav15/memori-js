@@ -33,7 +33,7 @@ export interface VectorStore {
   insert(
     content: string,
     embedding: number[],
-    metadata: MemoryMetadata
+    metadata?: MemoryMetadata
   ): Promise<string>;
 
   /**

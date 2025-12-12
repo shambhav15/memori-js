@@ -3,6 +3,7 @@ import { MemoriDB } from "../src/core/db";
 (async () => {
   console.log("Initializing MemoriDB...");
   const db = new MemoriDB(":memory:"); // In-memory for testing
+  await db.init();
 
   // Mock 768-dim vector (all zeros with one 1)
   const vec1 = new Array(768).fill(0);
@@ -12,11 +13,11 @@ import { MemoriDB } from "../src/core/db";
   vec2[1] = 1.0;
 
   console.log("Inserting vector 1...");
-  const id1 = await db.insert("Test Memory 1", vec1);
+  const id1 = await db.insert("Test Memory 1", vec1, { role: "user" });
   console.log(`Inserted ID: ${id1}`);
 
   console.log("Inserting vector 2...");
-  const id2 = await db.insert("Test Memory 2", vec2);
+  const id2 = await db.insert("Test Memory 2", vec2, { role: "user" });
   console.log(`Inserted ID: ${id2}`);
 
   console.log("Searching for vector 1...");

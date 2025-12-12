@@ -114,12 +114,12 @@ export class SqliteVecStore implements VectorStore {
   async insert(
     content: string,
     embedding: number[],
-    metadata: MemoryMetadata
+    metadata?: MemoryMetadata
   ): Promise<string> {
-    const role = metadata.role || "user";
-    const entityId = metadata.entityId || null;
-    const processId = metadata.processId || null;
-    const sessionId = metadata.sessionId || null;
+    const role = metadata?.role || "user";
+    const entityId = metadata?.entityId || null;
+    const processId = metadata?.processId || null;
+    const sessionId = metadata?.sessionId || null;
 
     return new Promise((resolve, reject) => {
       const db = this.db;

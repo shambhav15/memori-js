@@ -62,7 +62,7 @@ export class PostgresVecStore implements VectorStore {
   async insert(
     content: string,
     embedding: number[],
-    metadata: MemoryMetadata
+    metadata: MemoryMetadata = {}
   ): Promise<string> {
     try {
       // pgvector requires array string format '[1,2,3]'
