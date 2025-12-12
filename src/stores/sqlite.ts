@@ -9,11 +9,19 @@ import {
 import { Logger, ConsoleLogger } from "../core/logger";
 import { VectorStoreError } from "../core/errors";
 
+/**
+ * Implementation of VectorStore using SQLite and the sqlite-vec extension.
+ * This provides a local, file-based vector database without needing external services.
+ */
 export class SqliteVecStore implements VectorStore {
   public db: sqlite3.Database;
   private dbPath: string;
   private logger: Logger;
 
+  /**
+   * @param path - File path for the database. Defaults to "memori.db". Use ":memory:" for ephemeral storage.
+   * @param logger - Logger instance.
+   */
   constructor(path = "memori.db", logger?: Logger) {
     this.dbPath = path;
     this.logger = logger || new ConsoleLogger();
@@ -22,11 +30,19 @@ export class SqliteVecStore implements VectorStore {
     this.db = new sqlite3.Database(this.dbPath);
   }
 
+  /**
+   * Initializes the database schema and loads the vector extension.
+   * This sets up two tables:
+   * 1. `memories`: Stores raw text content and metadata.
+   * 2. `vec_memories`: Virtual table for vector storage and search.
+   */
   async init(): Promise<void> {
     this.loadExtension();
     return new Promise((resolve, reject) => {
       this.db.serialize(() => {
+        // Enable Write-Ahead Logging for better concurrency
         this.db.run("PRAGMA journal_mode = WAL;");
+
         // 2. Create Vector Virtual Table (vec0)
         // supporting 768 dimensions (Google text-embedding-004 standard)
         this.db.run(`
@@ -34,6 +50,8 @@ export class SqliteVecStore implements VectorStore {
               embedding float[768]
             );
           `);
+
+        // Standard relational table for content and metadata
         this.db.run(`
             CREATE TABLE IF NOT EXISTS memories (
               rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +63,8 @@ export class SqliteVecStore implements VectorStore {
               created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
           `);
-        // Cleanup trigger
+
+        // Cleanup trigger: Automatically delete vector when metadata row is deleted
         this.db.run(
           `
             CREATE TRIGGER IF NOT EXISTS delete_vec_memory
@@ -66,6 +85,10 @@ export class SqliteVecStore implements VectorStore {
     });
   }
 
+  /**
+   * Dynamically loads the platform-specific sqlite-vec extension.
+   * This allows the library to work on Mac, Linux, and Windows without manual setup.
+   */
   private loadExtension() {
     // Determine platform-specific package name
     let packageName = "";
@@ -91,6 +114,7 @@ export class SqliteVecStore implements VectorStore {
       if (platform === "linux") fileExt = ".so";
       if (platform === "win32") fileExt = ".dll";
 
+      // Construct path to the binary in node_modules
       const finalPath = join(
         process.cwd(),
         "node_modules",
@@ -111,6 +135,10 @@ export class SqliteVecStore implements VectorStore {
     }
   }
 
+  /**
+   * Inserts a new memory and its vector embedding.
+   * Uses a transaction to ensure both tables are updated atomically.
+   */
   async insert(
     content: string,
     embedding: number[],
@@ -128,7 +156,7 @@ export class SqliteVecStore implements VectorStore {
 
         let rowid: number;
 
-        // 1. Metadata
+        // 1. Insert Metadata
         db.run(
           "INSERT INTO memories (content, role, entity_id, process_id, session_id) VALUES (?, ?, ?, ?, ?)",
           [content, role, entityId, processId, sessionId],
@@ -142,7 +170,8 @@ export class SqliteVecStore implements VectorStore {
             // @ts-ignore
             rowid = this.lastID;
 
-            // 2. Vector
+            // 2. Insert Vector
+            // Must convert array to Float32Array buffer for sqlite-vec
             const buffer = Buffer.from(new Float32Array(embedding).buffer);
 
             db.run(
@@ -171,17 +200,23 @@ export class SqliteVecStore implements VectorStore {
     });
   }
 
+  /**
+   * Searches for similar memories using KNN vector search.
+   * Can be filtered by entity, process, or session IDs.
+   */
   async search(
     embedding: number[],
     limit = 5,
     filter?: MemoryFilter
   ): Promise<MemoryResult[]> {
+    // Basic vector search clause
     let whereClause = "v.embedding MATCH ? AND k = ?";
     const params: any[] = [
       Buffer.from(new Float32Array(embedding).buffer),
       limit,
     ];
 
+    // Append standard SQL filters if provided
     if (filter?.entityId) {
       whereClause += " AND m.entity_id = ?";
       params.push(filter.entityId);
@@ -218,7 +253,7 @@ export class SqliteVecStore implements VectorStore {
           const results: MemoryResult[] = rows.map((r) => ({
             id: r.rowid.toString(),
             content: r.content,
-            embedding: [], // Optimize: don't return embedding unless asked
+            embedding: [], // Optimization: don't return embedding unless asked to save bandwidth
             distance: r.distance,
             metadata: {
               role: r.role,

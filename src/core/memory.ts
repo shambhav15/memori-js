@@ -7,6 +7,7 @@ import { Logger, ConsoleLogger } from "./logger";
 import { ConfigurationError, EmbeddingError, VectorStoreError } from "./errors";
 
 // ArkType Validation Definition
+// Defines the schema for configuration options
 const MemoriConfig = type({
   "dbPath?": "string",
   "googleApiKey?": "string",
@@ -18,14 +19,25 @@ export type MemoriOptions = typeof MemoriConfig.infer;
 
 export type LLMProvider = "openai" | "google" | "anthropic";
 
+/**
+ * Statistics for the last execution of context retrieval.
+ */
 export interface ExecutionStats {
   lastRun?: {
+    /** Number of memory chunks retrieved and injected */
     contextChunks: number;
+    /** Time taken to search and retrieve context in milliseconds */
     processingTimeMs: number;
+    /** Timestamp of the operation */
     timestamp: string;
   };
 }
 
+/**
+ * The main class for the Memori library.
+ * It manages the connection to the vector store, handles embedding generation,
+ * and patches LLM clients to automatically inject long-term memory context.
+ */
 export class Memori {
   private db: VectorStore;
   private client: GoogleGenAI;
@@ -34,6 +46,9 @@ export class Memori {
   private processId: string | null = null;
   private pendingPromises: Promise<any>[] = [];
 
+  /**
+   * Public statistics object to track performance and usage.
+   */
   public stats: {
     lastRun?: {
       contextChunks: number;
@@ -42,25 +57,53 @@ export class Memori {
     };
   } = {};
 
+  /**
+   * Configuration helper.
+   * Currently exposes storage build method.
+   */
   public config: {
     storage: {
+      /**
+       * Manuall initialize the storage backend.
+       * Useful if you want to ensure the DB is ready before starting the app.
+       */
       build: () => Promise<void>;
     };
   };
 
+  /**
+   * Interface to register and patch LLM clients.
+   */
   public llm: {
+    /**
+     * Patches an LLM client instance (OpenAI, Anthropic, etc.) to automatically use Memori.
+     * @param client - The LLM client instance.
+     * @param provider - The provider name ("openai", "google", "anthropic").
+     * @returns The Memori instance for chaining.
+     */
     register: (
       client: any,
       provider?: "openai" | "google" | "anthropic"
     ) => Memori;
   };
 
+  /**
+   * Augmentation controls.
+   */
   public augmentation: {
+    /**
+     * Waits for all background memory storage operations to complete.
+     * Use this before shutting down or when strict consistency is needed.
+     */
     wait: () => Promise<void>;
   };
 
+  /**
+   * Creates a new Memori instance.
+   * @param options - Configuration options.
+   */
   constructor(options: MemoriOptions = {}) {
-    // Validate Options
+    // Validate Options using ArkType
     const result = MemoriConfig(options);
     if (result instanceof type.errors) {
       throw new ConfigurationError(
@@ -74,10 +117,11 @@ export class Memori {
     this.logger = (config.logger as Logger) || new ConsoleLogger();
 
     // Dependency Injection / Factory Pattern
+    // Allows injecting a custom vector store implementation (e.g., Postgres, Redis)
     if (config.vectorStore) {
       this.db = config.vectorStore as VectorStore;
     } else {
-      // Default Backward Compatibility
+      // Default Backward Compatibility: Use local SQLite
       this.db = new SqliteVecStore(config.dbPath, this.logger);
       this.db
         .init()
@@ -103,6 +147,7 @@ export class Memori {
 
     this.llm = {
       register: (client: any, provider: LLMProvider = "openai") => {
+        // Dispatch based on provider to specific patch logic
         if (provider === "openai") this.patchOpenAI(client);
         else if (provider === "anthropic") this.patchAnthropic(client);
         else if (provider === "google") this.patchGoogle(client);
@@ -123,11 +168,23 @@ export class Memori {
     };
   }
 
+  /**
+   * Set context attribution.
+   * This scopes future searches and inserts to specific entities or processes.
+   * @param entity_id - The ID of the user or agent.
+   * @param process_id - The ID of the conversation or process.
+   */
   public attribution(entity_id: string, process_id: string) {
     this.entityId = entity_id;
     this.processId = process_id;
   }
 
+  /**
+   * Internal helper to retrieve relevant context for a query.
+   * 1. Embeds the query.
+   * 2. Searches the vector store.
+   * 3. Formats the results into a context string.
+   */
   private async retrieveContext(query: string): Promise<string> {
     const start = Date.now();
     let context = "";
@@ -143,7 +200,7 @@ export class Memori {
       }
     } catch (e) {
       this.logger.error("Memori search failed:", e);
-      // Fail gracefully for context retrieval
+      // Fail gracefully for context retrieval so the chat doesn't crash
     }
 
     this.stats.lastRun = {
@@ -155,6 +212,10 @@ export class Memori {
     return context;
   }
 
+  /**
+   * Monkey-patches the OpenAI client to intercept chat completions.
+   * It injects memory context into the system prompt and auto-saves the conversation.
+   */
   private patchOpenAI(client: OpenAI) {
     const originalCreate = client.chat.completions.create.bind(
       client.chat.completions
@@ -162,6 +223,7 @@ export class Memori {
     // @ts-ignore
     client.chat.completions.create = async (body: any, options?: any) => {
       const messages = body.messages || [];
+      // Find the last user message to use as the search query
       const lastMsg = messages
         .slice()
         .reverse()
@@ -174,18 +236,20 @@ export class Memori {
 
       const newMessages = [...messages];
       if (context) {
+        // Inject context as a system message at the beginning
         newMessages.unshift({
           role: "system",
           content: `Use the following memory context to answer the user if relevant:\n${context}`,
         });
       }
 
+      // Call the original SDK method with modified messages
       const response = await originalCreate(
         { ...body, messages: newMessages },
         options
       );
 
-      // Auto-save
+      // Auto-save the interaction to memory in the background
       if (lastMsg && typeof lastMsg.content === "string") {
         this.queueMemory(lastMsg.content, "user");
         if ("choices" in response) {
@@ -197,6 +261,10 @@ export class Memori {
     };
   }
 
+  /**
+   * Monkey-patches the Anthropic client.
+   * Handle specific message format and system prompt behavior of Claude.
+   */
   private patchAnthropic(client: any) {
     // Anthropic SDK: client.messages.create({...})
     const originalCreate = client.messages.create.bind(client.messages);
@@ -231,7 +299,7 @@ export class Memori {
       this.stats.lastRun = {
         ...this.stats.lastRun!,
         processingTimeMs: Date.now() - start,
-      }; // Update time with LLM time too? No, keep context retrieval time separate or cumulative? User asked for comparison. Let's keep separate retrieval time vs total time in future.
+      };
 
       // Auto-save
       if (lastMsg && typeof lastMsg.content === "string") {
@@ -254,6 +322,10 @@ export class Memori {
     };
   }
 
+  /**
+   * Monkey-patches the Google GenAI client.
+   * Wraps the model.generateContent method.
+   */
   private patchGoogle(client: any) {
     // Google GenAI SDK: client.getGenerativeModel({ model: "..." }) returns a model instance.
     // We must patch getGenerativeModel to return a wrapped model.
@@ -330,6 +402,9 @@ export class Memori {
     };
   }
 
+  /**
+   * Helper to queue memory insertions in the background without blocking the main flow.
+   */
   private queueMemory(content: string, role: string) {
     const p = this.addMemory(content, role).catch((e) =>
       console.error("Memori save failed:", e)
@@ -337,6 +412,10 @@ export class Memori {
     this.pendingPromises.push(p);
   }
 
+  /**
+   * Adds a new memory to the vector store.
+   * Generates embedding and persists it.
+   */
   async addMemory(content: string, role = "user") {
     const embedding = await this.getEmbedding(content);
     return await this.db.insert(content, embedding, {
@@ -347,6 +426,9 @@ export class Memori {
     });
   }
 
+  /**
+   * Searches for memories similar to a given query string.
+   */
   async search(query: string, limit = 5) {
     const embedding = await this.getEmbedding(query);
     const filter = {
@@ -356,6 +438,9 @@ export class Memori {
     return await this.db.search(embedding, limit, filter);
   }
 
+  /**
+   * Generates a vector embedding for the given text using Google's GenAI model.
+   */
   private async getEmbedding(text: string): Promise<number[]> {
     const response = await this.client.models.embedContent({
       model: "text-embedding-004",

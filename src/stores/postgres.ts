@@ -7,10 +7,18 @@ import {
 } from "../core/types";
 import { VectorStoreError, ConfigurationError } from "../core/errors";
 
+/**
+ * Implementation of VectorStore using PostgreSQL and the pgvector extension.
+ * Best for production environments requiring high scalability and concurrency.
+ */
 export class PostgresVecStore implements VectorStore {
   private pool: Pool;
   private tableName: string;
 
+  /**
+   * @param connectionString - PostgreSQL connection URI (e.g., "postgresql://user:pass@localhost:5432/db").
+   * @param tableName - Name of the table to store memories. Defaults to "memories".
+   */
   constructor(connectionString: string, tableName = "memories") {
     if (!connectionString) {
       throw new ConfigurationError("Postgres connection string is required.");
@@ -21,6 +29,12 @@ export class PostgresVecStore implements VectorStore {
     this.tableName = tableName;
   }
 
+  /**
+   * Initializes the database schema.
+   * 1. Enables the `vector` extension.
+   * 2. Creates the memories table with a 768-dim vector column.
+   * 3. Creates an HNSW index for fast similarity search.
+   */
   async init(): Promise<void> {
     try {
       const client = await this.pool.connect();
@@ -43,9 +57,7 @@ export class PostgresVecStore implements VectorStore {
         `);
 
         // 3. Create HNSW Index for fast ANN search
-        // Check if index exists or rely on idempotent creation commands if supported,
-        // but explicit named index creation IF NOT EXISTS is trickier in older PG.
-        // We'll use a simple approach:
+        // Uses vector_cosine_ops for cosine similarity
         await client.query(`
           CREATE INDEX IF NOT EXISTS ${this.tableName}_embedding_idx 
           ON ${this.tableName} 
@@ -59,6 +71,9 @@ export class PostgresVecStore implements VectorStore {
     }
   }
 
+  /**
+   * Inserts a new memory record into the PostgreSQL database.
+   */
   async insert(
     content: string,
     embedding: number[],
@@ -80,6 +95,9 @@ export class PostgresVecStore implements VectorStore {
     }
   }
 
+  /**
+   * Searches for similar memories using the <=> operator (cosine distance).
+   */
   async search(
     embedding: number[],
     limit = 5,
