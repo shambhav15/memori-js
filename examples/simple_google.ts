@@ -2,8 +2,7 @@ import { Memori } from "../src/index";
 import { GoogleGenAI } from "@google/genai";
 
 // Ensure keys
-const googleKey =
-  process.env.GOOGLE_API_KEY || "AIzaSyA6JTKhX4kuIqCrqGOh4iZ69QTc4xfij5s"; // Fallback for demo
+const googleKey = process.env.GOOGLE_API_KEY || ""; // Fallback for demo
 const memoriKey = process.env.MEMORI_API_KEY || googleKey;
 
 async function main() {
@@ -22,8 +21,8 @@ async function main() {
   console.log("✅ Client registered (Provider auto-detected)");
 
   // 4. Teach
-  console.log("Teaching: I am a software engineer.");
-  await memori.addMemory("I am a software engineer.");
+  console.log("Teaching: I maybe a  software engineer.");
+  await memori.addMemory(" am i an engineer?");
 
   // 5. Ask
   console.log("Asking: Who am I?");

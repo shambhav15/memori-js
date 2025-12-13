@@ -41,11 +41,13 @@
   "dependencies": {
     "@google/genai": "^1.32.0",
     "@types/pg": "^8.16.0",
+    "@xenova/transformers": "^2.17.2",
     "arktype": "^2.1.28",
     "better-sqlite3": "^12.5.0",
     "elysia": "latest",
     "openai": "^6.10.0",
     "pg": "^8.16.3",
+    "sharp": "^0.34.5",
     "sqlite-vec": "^0.1.7-alpha.2",
     "sqlite3": "^5.1.7"
   },
