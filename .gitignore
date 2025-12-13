@@ -8,6 +8,7 @@ node_modules
 # testing
 coverage
 
+blog/
 # next.js
 /.next/
 /out/

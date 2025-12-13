@@ -17,6 +17,15 @@
 
 ---
 
+## 🆕 Recent Updates (v1.1)
+
+- **Dynamic Embeddings:** You can now bring **any** embedding provider (OpenAI, HuggingFace, etc.) using the `embedding` prop.
+- **Provider Agnostic API:** `googleApiKey` is now `apiKey` and `MEMORI_API_KEY`.
+- **Master Guide:** See [MASTER_CONFIG.md](./MASTER_CONFIG.md) for advanced customization.
+- **Record:** See [WALKTHROUGH_RECORD.md](./WALKTHROUGH_RECORD.md) for a change log.
+
+---
+
 ## 🚀 Why Memori?
 
 If you are building an AI app today, you usually have to:
@@ -79,7 +88,7 @@ bun add memori-js
 import { Memori } from "memori-js";
 
 const memori = new Memori({
-  googleApiKey: process.env.GOOGLE_API_KEY, // Required for embedding generation
+  apiKey: process.env.MEMORI_API_KEY, // Default is Google GenAI
 });
 ```
 
@@ -89,7 +98,7 @@ const memori = new Memori({
 import { Memori, PostgresVecStore } from "memori-js";
 
 const memori = new Memori({
-  googleApiKey: process.env.GOOGLE_API_KEY,
+  apiKey: process.env.MEMORI_API_KEY,
   // Seamlessly switch to Postgres for production
   vectorStore: new PostgresVecStore(process.env.DATABASE_URL!),
 });
@@ -141,12 +150,23 @@ memori-js uses **Arktype** for ultra-fast runtime validation and strict typing.
 import { ConsoleLogger } from "memori-js";
 
 const memori = new Memori({
-  googleApiKey: "...",
+  apiKey: "...",
   dbPath: "./custom-memory.db",
   logger: new ConsoleLogger(), // Or pass your own Pino/Winston wrapper
 });
-*/
 ```
+
+### 📖 Master Configuration Guide
+
+For deep customization (Custom Embeddings, Vectors, etc.), check out the **[Master Configuration Guide](./MASTER_CONFIG.md)**.
+It covers:
+
+- Using Custom Embedding Providers (OpenAI, Voyage, Local)
+- End-to-End Workflow Diagram
+- Full Configuration Options Reference
+  \*/
+
+````
 
 ### 4. Advanced Augmentation (Multi-Tenancy)
 
@@ -162,7 +182,7 @@ await memori.addMemory("I like apples."); // Stored with metadata
 // Search is filtered automatically
 const results = await memori.search("What do I like?");
 // returns "I like apples." ONLY for user-123
-```
+````
 
 ---
 
