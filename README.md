@@ -109,37 +109,86 @@ await memori.config.storage.build(); // Initializes tables if missing
 
 Memori supports "Patching" — it wraps your existing LLM client to add memory capabilities transparently.
 
-#### OpenAI
+#### 🔵 OpenAI (Copy-Paste Example)
 
 ```typescript
+import { Memori } from "memori-js";
 import OpenAI from "openai";
+
+const memori = new Memori({ apiKey: process.env.MEMORI_API_KEY });
+await memori.config.storage.build(); // Init DB
+
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+memori.llm.register(client); // Auto-detects "openai"
 
-memori.llm.register(client, "openai");
+// 1. Teach Memory
+await memori.addMemory("My name is John and I am a software engineer.");
 
-// Now, every call is memory-augmented!
+// 2. Ask (Context is auto-injected)
 const response = await client.chat.completions.create({
   model: "gpt-4",
-  messages: [{ role: "user", content: "What is my favorite color?" }],
+  messages: [{ role: "user", content: "Who am I and what do I do?" }],
 });
+
+console.log(response.choices[0].message.content);
+// Output: "You are John, a software engineer."
 ```
 
-#### Google GenAI (Gemini)
+#### 🟢 Google GenAI (Copy-Paste Example)
 
 ```typescript
+import { Memori } from "memori-js";
 import { GoogleGenAI } from "@google/genai";
-const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 
-memori.llm.register(client, "google");
+const memori = new Memori({ apiKey: process.env.MEMORI_API_KEY });
+await memori.config.storage.build(); // Init DB
+
+const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+memori.llm.register(client); // Auto-detects "google"
+
+// 1. Teach Memory
+await memori.addMemory("My name is John and I am a software engineer.");
+
+// 2. Ask (Context is auto-injected)
+const result = await client.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents: [
+    {
+      role: "user",
+      parts: [{ text: "Who am I and what do I do?" }],
+    },
+  ],
+});
+
+// Response text is directly available or via candidates
+console.log(result.text || result.candidates?.[0]?.content?.parts?.[0]?.text);
+// Output: "You are John, a software engineer."
 ```
 
-#### Anthropic (Claude)
+#### 🟠 Anthropic (Copy-Paste Example)
 
 ```typescript
+import { Memori } from "memori-js";
 import Anthropic from "@anthropic-ai/sdk";
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-memori.llm.register(client, "anthropic");
+const memori = new Memori({ apiKey: process.env.MEMORI_API_KEY });
+await memori.config.storage.build(); // Init DB
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+memori.llm.register(client); // Auto-detects "anthropic"
+
+// 1. Teach Memory
+await memori.addMemory("My name is John and I am a software engineer.");
+
+// 2. Ask (Context is auto-injected)
+const response = await client.messages.create({
+  model: "claude-3-opus-20240229",
+  max_tokens: 1000,
+  messages: [{ role: "user", content: "Who am I and what do I do?" }],
+});
+
+console.log(response.content[0].text);
+// Output: "You are John, a software engineer."
 ```
 
 ### 3. Advanced Configuration
@@ -166,8 +215,6 @@ It covers:
 - Full Configuration Options Reference
   \*/
 
-````
-
 ### 4. Advanced Augmentation (Multi-Tenancy)
 
 For multi-user apps (chatbots, agents), you can isolate memory by User ID and Agent ID.
@@ -182,7 +229,7 @@ await memori.addMemory("I like apples."); // Stored with metadata
 // Search is filtered automatically
 const results = await memori.search("What do I like?");
 // returns "I like apples." ONLY for user-123
-````
+```
 
 ---
 

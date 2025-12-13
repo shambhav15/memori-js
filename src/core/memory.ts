@@ -153,16 +153,49 @@ export class Memori {
     };
 
     this.llm = {
-      register: (client: any, provider: LLMProvider = "openai") => {
-        // Dispatch based on provider to specific patch logic
-        if (provider === "openai") this.patchOpenAI(client);
-        else if (provider === "anthropic") this.patchAnthropic(client);
-        else if (provider === "google") this.patchGoogle(client);
-        else
-          throw new ConfigurationError(
-            `Provider ${provider} not supported yet.`
-          );
+      register: (
+        client: any,
+        providerName?: "openai" | "google" | "anthropic"
+      ) => {
+        // Auto-detect provider if not specified
+        if (!providerName) {
+          if (
+            client.models &&
+            typeof client.models.generateContent === "function"
+          ) {
+            providerName = "google";
+            this.logger.info("Auto-detected LLM Provider: Google");
+          } else if (client.chat && client.chat.completions) {
+            providerName = "openai";
+            this.logger.info("Auto-detected LLM Provider: OpenAI");
+          } else if (
+            client.messages &&
+            typeof client.messages.create === "function"
+          ) {
+            providerName = "anthropic";
+            this.logger.info("Auto-detected LLM Provider: Anthropic");
+          } else {
+            throw new Error(
+              "Could not auto-detect LLM provider. Please specify 'openai', 'google', or 'anthropic' as the second argument."
+            );
+          }
+        }
 
+        switch (providerName) {
+          case "openai":
+            this.patchOpenAI(client);
+            break;
+          case "google":
+            this.patchGoogle(client);
+            break;
+          case "anthropic":
+            this.patchAnthropic(client);
+            break;
+          default:
+            throw new ConfigurationError(
+              `Provider '${providerName}' not supported or could not be auto-detected. Please specify 'openai', 'google', or 'anthropic'.`
+            );
+        }
         return this;
       },
     };
@@ -333,79 +366,90 @@ export class Memori {
    * Monkey-patches the Google GenAI client.
    * Wraps the model.generateContent method.
    */
+  /**
+   * Monkey-patches the Google GenAI client (v1/Vertex SDK).
+   * Wraps the client.models.generateContent method.
+   */
   private patchGoogle(client: any) {
-    // Google GenAI SDK: client.getGenerativeModel({ model: "..." }) returns a model instance.
-    // We must patch getGenerativeModel to return a wrapped model.
+    // The new @google/genai SDK exposes client.models.generateContent(...)
+    if (!client.models || !client.models.generateContent) {
+      this.logger.error(
+        "Invalid Google Client: missing models.generateContent"
+      );
+      return;
+    }
 
-    const originalGetModel = client.getGenerativeModel.bind(client);
+    const originalGenerate = client.models.generateContent.bind(client.models);
 
-    client.getGenerativeModel = (modelParams: any, requestOptions: any) => {
-      const model = originalGetModel(modelParams, requestOptions);
+    client.models.generateContent = async (args: any) => {
+      let config = args;
+      let lastText = "";
 
-      // Patch the generateContent method of the returned model
-      const originalGenerate = model.generateContent.bind(model);
+      // Extract User Query
+      // Structure: { contents: [ { role: 'user', parts: [ { text: '...' } ] } ] }
+      if (config.contents && Array.isArray(config.contents)) {
+        const lastContent = config.contents[config.contents.length - 1];
+        if (lastContent && lastContent.parts && lastContent.parts.length > 0) {
+          const part = lastContent.parts[0];
+          if (part.text) lastText = part.text;
+        }
+      }
 
-      model.generateContent = async (...args: any[]) => {
-        // args[0] can be string or object or array
-        let contentArg = args[0];
-        let lastText = "";
+      // 1. Retrieve Context
+      let context = "";
+      if (lastText) {
+        context = await this.retrieveContext(lastText.substring(0, 500));
+      }
 
-        // Normalization of Google GenAI input
-        if (typeof contentArg === "string") {
-          lastText = contentArg;
-        } else if (Array.isArray(contentArg)) {
-          // Array of Content or Strings
-          lastText = JSON.stringify(contentArg); // fallback
-        } else if (typeof contentArg === "object") {
-          // Maybe Content object { role, parts }
-          if (contentArg.parts) {
-            // parts can be string or array
-            // simplify extraction
-            lastText = JSON.stringify(contentArg);
+      // 2. Inject Context
+      if (context) {
+        const memoryInstruction = `[Memory Context]:\n${context}`;
+
+        if (config.config && config.config.systemInstruction) {
+          let existing = config.config.systemInstruction;
+          if (typeof existing === "string") {
+            config.config.systemInstruction = `${existing}\n\n${memoryInstruction}`;
+          } else if (existing.parts) {
+            existing.parts.push({ text: `\n\n${memoryInstruction}` });
           }
+        } else {
+          if (!config.config) config.config = {};
+          config.config.systemInstruction = {
+            parts: [{ text: memoryInstruction }],
+          };
         }
+      }
 
-        // Retrieve context
-        let context = "";
-        if (lastText) {
-          // Try to extract actual user prompt for search
-          // For simplicity, we search the whole raw string or basic text
-          context = await this.retrieveContext(lastText.substring(0, 500));
-        }
+      // 3. Call Original
+      const response = await originalGenerate(config);
 
-        // Inject Context
-        // Google GenAI supports "systemInstruction" at model config level usually,
-        // but here we are at generateContent time.
-        // Best is to prepend to prompt.
-        if (context) {
-          if (typeof contentArg === "string") {
-            args[0] = `[Memory Context]:\n${context}\n\n${contentArg}`;
-          } else if (
-            typeof contentArg === "object" &&
-            !Array.isArray(contentArg)
-          ) {
-            // Ideally we modify parts
-            // This is complex for Google's flexible API.
-            // Implementation simplified for "String" prompts or basic object usage.
+      // 4. Auto-Save
+      if (lastText && response) {
+        this.queueMemory(lastText, "user");
+
+        try {
+          let text = "";
+          if (typeof response.text === "function") {
+            text = response.text();
+          } else if (typeof response.text === "string") {
+            text = response.text;
+          } else if (response.candidates && response.candidates.length > 0) {
+            const parts = response.candidates[0].content?.parts;
+            if (parts && parts.length > 0 && parts[0].text) {
+              text = parts[0].text;
+            }
           }
+
+          if (text) this.queueMemory(text, "assistant");
+        } catch (e) {
+          this.logger.warn(
+            "Failed to extract text from Google response for memory",
+            e
+          );
         }
+      }
 
-        const response = await originalGenerate(...args);
-
-        // Response is usually { response: { candidates: [...] } } or similar
-        // Wait for the result object
-        const result = await response.response;
-        const text = result.text(); // Helper method in Google SDK
-
-        if (lastText && text) {
-          this.queueMemory(lastText, "user");
-          this.queueMemory(text, "assistant");
-        }
-
-        return response;
-      };
-
-      return model;
+      return response;
     };
   }
 
