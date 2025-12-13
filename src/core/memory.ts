@@ -2,6 +2,7 @@ import { type } from "arktype";
 import { SqliteVecStore } from "../stores/sqlite";
 import { VectorStore, EmbeddingProvider } from "./types";
 import { GoogleGenAIEmbedding } from "../embeddings/google";
+import { OpenAIEmbedding } from "../embeddings/openai";
 import { TransformerEmbedding } from "../embeddings/transformer";
 import OpenAI from "openai";
 import { Logger, ConsoleLogger } from "./logger";
@@ -132,18 +133,9 @@ export class Memori {
         this.embeddingProvider = new GoogleGenAIEmbedding({ apiKey });
         defaultDimensions = 768;
       } else if (apiKey.startsWith("sk-")) {
-        // OpenAI Key (User must likely install 'openai' if they haven't, but we can't assume imports here dynamically easily without lazy loading)
-        // For now, we will throw if they try to use OpenAI key without passing the provider explicitly, OR we can try to lazy load.
-        // To keep it simple and robust as per plan: explicit support for Google (built-in) or error.
-        // Wait, 'openai' is in dependencies. We can import it?
-        // Actually, let's keep it simple: If they provide sk- key, we accept it IF we implemented OpenAIEmbedding.
-        // DO WE HAVE OpenAIEmbedding? I need to check.
-        // Checking file... NO. We only have GoogleGenAIEmbedding in codebase so far (visible).
-        // Re-reading 'src/index.ts' might reveal it, but safely:
-
-        throw new ConfigurationError(
-          "OpenAI API Key detected ('sk-...') but OpenAIEmbedding is not automatically configured yet. Please pass the 'embedding' option explicitly with an OpenAI provider."
-        );
+        // OpenAI Key
+        this.embeddingProvider = new OpenAIEmbedding({ apiKey });
+        defaultDimensions = 1536; // OpenAI text-embedding-3-small default
       } else {
         // Unknown Key
         throw new ConfigurationError(
@@ -296,31 +288,68 @@ export class Memori {
         .find((m: any) => m.role === "user");
 
       let context = "";
+      // 1. Retrieve Context if we have a user message
       if (lastMsg && typeof lastMsg.content === "string") {
         context = await this.retrieveContext(lastMsg.content);
       }
 
+      // 2. Inject Context
       const newMessages = [...messages];
       if (context) {
-        // Inject context as a system message at the beginning
-        newMessages.unshift({
-          role: "system",
-          content: `Use the following memory context to answer the user if relevant:\n${context}`,
-        });
+        const systemPrompt = `Use the following memory context to answer the user if relevant:\n${context}`;
+
+        // Find existing system message to append to, or prepend new one
+        const systemMsgIndex = newMessages.findIndex(
+          (m: any) => m.role === "system"
+        );
+        if (systemMsgIndex >= 0) {
+          const existing = newMessages[systemMsgIndex].content;
+          if (typeof existing === "string") {
+            newMessages[systemMsgIndex] = {
+              ...newMessages[systemMsgIndex],
+              content: `${existing}\n\n${systemPrompt}`,
+            };
+          } else if (Array.isArray(existing)) {
+            // Append as a text part
+            newMessages[systemMsgIndex] = {
+              ...newMessages[systemMsgIndex],
+              content: [
+                ...existing,
+                { type: "text", text: `\n\n${systemPrompt}` },
+              ],
+            };
+          }
+        } else {
+          newMessages.unshift({
+            role: "system",
+            content: systemPrompt,
+          });
+        }
       }
 
-      // Call the original SDK method with modified messages
+      // 3. Call Original
       const response = await originalCreate(
         { ...body, messages: newMessages },
         options
       );
 
-      // Auto-save the interaction to memory in the background
-      if (lastMsg && typeof lastMsg.content === "string") {
+      // 4. Auto-save (Non-streaming only for now)
+      // If streaming, 'response' is a Stream, and we can't easily capture the full text without tapping the stream
+      // which is complex. For now, we skip auto-save on stream: true.
+      if (!body.stream && lastMsg && typeof lastMsg.content === "string") {
         this.queueMemory(lastMsg.content, "user");
-        if ("choices" in response) {
-          const aiContent = response.choices[0].message.content;
-          if (aiContent) this.queueMemory(aiContent, "assistant");
+
+        // Safety check for response structure
+        if (
+          response &&
+          "choices" in response &&
+          response.choices &&
+          response.choices[0]
+        ) {
+          const message = response.choices[0].message;
+          if (message && message.content) {
+            this.queueMemory(message.content, "assistant");
+          }
         }
       }
       return response;
