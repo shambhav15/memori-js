@@ -1,4 +1,14 @@
-import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+  mock,
+  spyOn,
+} from "bun:test";
 import { Memori } from "../../../src/core/memory";
 import { SqliteVecStore } from "../../../src/stores/sqlite";
 
@@ -30,6 +40,16 @@ mock.module("@google/genai", () => {
 
 describe("Memori Core", () => {
   let memori: Memori;
+  const originalKey = process.env.MEMORI_API_KEY;
+
+  beforeAll(() => {
+    process.env.MEMORI_API_KEY = "test-key";
+  });
+
+  afterAll(() => {
+    if (originalKey) process.env.MEMORI_API_KEY = originalKey;
+    else delete process.env.MEMORI_API_KEY;
+  });
 
   beforeEach(() => {
     // We can inject a mock store or use in-memory sqlite for integration-like unit test

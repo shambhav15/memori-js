@@ -1,7 +1,7 @@
 import { type } from "arktype";
 import { SqliteVecStore } from "../stores/sqlite";
-import { VectorStore } from "./types";
-import { GoogleGenAI } from "@google/genai";
+import { VectorStore, EmbeddingProvider } from "./types";
+import { GoogleGenAIEmbedding } from "../embeddings/google";
 import OpenAI from "openai";
 import { Logger, ConsoleLogger } from "./logger";
 import { ConfigurationError, EmbeddingError, VectorStoreError } from "./errors";
@@ -10,8 +10,10 @@ import { ConfigurationError, EmbeddingError, VectorStoreError } from "./errors";
 // Defines the schema for configuration options
 const MemoriConfig = type({
   "dbPath?": "string",
-  "googleApiKey?": "string",
+  "apiKey?": "string",
   "vectorStore?": "unknown",
+  "embedding?": "unknown",
+  "embeddingDimension?": "number",
   "logger?": "unknown",
 });
 
@@ -40,7 +42,7 @@ export interface ExecutionStats {
  */
 export class Memori {
   private db: VectorStore;
-  private client: GoogleGenAI;
+  private embeddingProvider: EmbeddingProvider;
   private logger: Logger;
   private entityId: string | null = null;
   private processId: string | null = null;
@@ -122,20 +124,25 @@ export class Memori {
       this.db = config.vectorStore as VectorStore;
     } else {
       // Default Backward Compatibility: Use local SQLite
-      this.db = new SqliteVecStore(config.dbPath, this.logger);
+      // Default dimension 768 to match Google GenAI default
+      const dim = config.embeddingDimension || 768;
+      this.db = new SqliteVecStore(config.dbPath, this.logger, dim);
       this.db
         .init()
         .catch((e) => this.logger.error("Failed to init default DB:", e));
     }
 
-    const apiKey = config.googleApiKey || process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
+    const apiKey = config.apiKey || process.env.MEMORI_API_KEY;
+
+    if (config.embedding) {
+      this.embeddingProvider = config.embedding as EmbeddingProvider;
+    } else if (apiKey) {
+      this.embeddingProvider = new GoogleGenAIEmbedding({ apiKey });
+    } else {
       throw new ConfigurationError(
-        "GOOGLE_API_KEY is required for embeddings."
+        "Missing configuration: Provide either an 'embedding' provider or 'apiKey' (or set MEMORI_API_KEY env var) for default Google embeddings."
       );
     }
-
-    this.client = new GoogleGenAI({ apiKey });
 
     this.config = {
       storage: {
@@ -442,24 +449,6 @@ export class Memori {
    * Generates a vector embedding for the given text using Google's GenAI model.
    */
   private async getEmbedding(text: string): Promise<number[]> {
-    const response = await this.client.models.embedContent({
-      model: "text-embedding-004",
-      contents: [
-        {
-          role: "user",
-          parts: [{ text }],
-        },
-      ],
-    });
-
-    if (
-      !response.embeddings ||
-      !response.embeddings[0] ||
-      !response.embeddings[0].values
-    ) {
-      throw new Error("Failed to get embedding from Google GenAI");
-    }
-
-    return response.embeddings[0].values;
+    return await this.embeddingProvider.embed(text);
   }
 }
