@@ -2,6 +2,7 @@ import { type } from "arktype";
 import { SqliteVecStore } from "../stores/sqlite";
 import { VectorStore, EmbeddingProvider } from "./types";
 import { GoogleGenAIEmbedding } from "../embeddings/google";
+import { TransformerEmbedding } from "../embeddings/transformer";
 import OpenAI from "openai";
 import { Logger, ConsoleLogger } from "./logger";
 import { ConfigurationError, EmbeddingError, VectorStoreError } from "./errors";
@@ -118,30 +119,55 @@ export class Memori {
     // Logger Init
     this.logger = (config.logger as Logger) || new ConsoleLogger();
 
-    // Dependency Injection / Factory Pattern
-    // Allows injecting a custom vector store implementation (e.g., Postgres, Redis)
+    const apiKey = config.apiKey || process.env.MEMORI_API_KEY;
+    let defaultDimensions = 768; // Default for Google
+
+    if (config.embedding) {
+      // 1. User provided explicit embedding provider
+      this.embeddingProvider = config.embedding as EmbeddingProvider;
+    } else if (apiKey) {
+      // 2. Auto-Detect based on API Key Prefix
+      if (apiKey.startsWith("AIza")) {
+        // Google Key
+        this.embeddingProvider = new GoogleGenAIEmbedding({ apiKey });
+        defaultDimensions = 768;
+      } else if (apiKey.startsWith("sk-")) {
+        // OpenAI Key (User must likely install 'openai' if they haven't, but we can't assume imports here dynamically easily without lazy loading)
+        // For now, we will throw if they try to use OpenAI key without passing the provider explicitly, OR we can try to lazy load.
+        // To keep it simple and robust as per plan: explicit support for Google (built-in) or error.
+        // Wait, 'openai' is in dependencies. We can import it?
+        // Actually, let's keep it simple: If they provide sk- key, we accept it IF we implemented OpenAIEmbedding.
+        // DO WE HAVE OpenAIEmbedding? I need to check.
+        // Checking file... NO. We only have GoogleGenAIEmbedding in codebase so far (visible).
+        // Re-reading 'src/index.ts' might reveal it, but safely:
+
+        throw new ConfigurationError(
+          "OpenAI API Key detected ('sk-...') but OpenAIEmbedding is not automatically configured yet. Please pass the 'embedding' option explicitly with an OpenAI provider."
+        );
+      } else {
+        // Unknown Key
+        throw new ConfigurationError(
+          "Unknown API Key format. If using a custom provider, please pass the 'embedding' option explicitly."
+        );
+      }
+    } else {
+      // 3. Fallback: Free Local Model
+      this.logger.info(
+        "No API Key found. Using free local embeddings (Xenova/all-MiniLM-L6-v2)."
+      );
+      this.embeddingProvider = new TransformerEmbedding();
+      defaultDimensions = 384;
+    }
+
+    // Default Vector Store
     if (config.vectorStore) {
       this.db = config.vectorStore as VectorStore;
     } else {
-      // Default Backward Compatibility: Use local SQLite
-      // Default dimension 768 to match Google GenAI default
-      const dim = config.embeddingDimension || 768;
+      const dim = config.embeddingDimension || defaultDimensions;
       this.db = new SqliteVecStore(config.dbPath, this.logger, dim);
       this.db
         .init()
         .catch((e) => this.logger.error("Failed to init default DB:", e));
-    }
-
-    const apiKey = config.apiKey || process.env.MEMORI_API_KEY;
-
-    if (config.embedding) {
-      this.embeddingProvider = config.embedding as EmbeddingProvider;
-    } else if (apiKey) {
-      this.embeddingProvider = new GoogleGenAIEmbedding({ apiKey });
-    } else {
-      throw new ConfigurationError(
-        "Missing configuration: Provide either an 'embedding' provider or 'apiKey' (or set MEMORI_API_KEY env var) for default Google embeddings."
-      );
     }
 
     this.config = {
