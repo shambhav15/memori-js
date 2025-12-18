@@ -43,7 +43,7 @@ describe("Memori Core", () => {
   const originalKey = process.env.MEMORI_API_KEY;
 
   beforeAll(() => {
-    process.env.MEMORI_API_KEY = "test-key";
+    process.env.MEMORI_API_KEY = "AIzaTestKey";
   });
 
   afterAll(() => {

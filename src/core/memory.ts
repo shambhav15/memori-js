@@ -3,7 +3,7 @@ import { SqliteVecStore } from "../stores/sqlite";
 import { VectorStore, EmbeddingProvider } from "./types";
 import { GoogleGenAIEmbedding } from "../embeddings/google";
 import { OpenAIEmbedding } from "../embeddings/openai";
-import { TransformerEmbedding } from "../embeddings/transformer";
+
 import OpenAI from "openai";
 import { Logger, ConsoleLogger } from "./logger";
 import { ConfigurationError, EmbeddingError, VectorStoreError } from "./errors";
@@ -143,12 +143,7 @@ export class Memori {
         );
       }
     } else {
-      // 3. Fallback: Free Local Model
-      this.logger.info(
-        "No API Key found. Using free local embeddings (Xenova/all-MiniLM-L6-v2)."
-      );
-      this.embeddingProvider = new TransformerEmbedding();
-      defaultDimensions = 384;
+      throw new ConfigurationError("Missing configuration");
     }
 
     // Default Vector Store
@@ -417,10 +412,6 @@ export class Memori {
     };
   }
 
-  /**
-   * Monkey-patches the Google GenAI client.
-   * Wraps the model.generateContent method.
-   */
   /**
    * Monkey-patches the Google GenAI client (v1/Vertex SDK).
    * Wraps the client.models.generateContent method.
