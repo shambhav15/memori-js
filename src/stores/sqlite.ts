@@ -63,9 +63,18 @@ export class SqliteVecStore implements VectorStore {
               entity_id TEXT,
               process_id TEXT,
               session_id TEXT,
-              created_at TEXT DEFAULT CURRENT_TIMESTAMP
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              metadata_json TEXT
             );
           `);
+
+        // Migration: Attempt to add metadata_json column if it doesn't exist (for existing DBs)
+        this.db.run(
+          "ALTER TABLE memories ADD COLUMN metadata_json TEXT;",
+          (err) => {
+            // Ignore error if column already exists
+          }
+        );
 
         // Cleanup trigger: Automatically delete vector when metadata row is deleted
         this.db.run(
@@ -160,9 +169,11 @@ export class SqliteVecStore implements VectorStore {
         let rowid: number;
 
         // 1. Insert Metadata
+        const metadataJson = metadata ? JSON.stringify(metadata) : null;
+
         db.run(
-          "INSERT INTO memories (content, role, entity_id, process_id, session_id) VALUES (?, ?, ?, ?, ?)",
-          [content, role, entityId, processId, sessionId],
+          "INSERT INTO memories (content, role, entity_id, process_id, session_id, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
+          [content, role, entityId, processId, sessionId, metadataJson],
           function (err) {
             if (err) {
               db.run("ROLLBACK");
@@ -241,7 +252,9 @@ export class SqliteVecStore implements VectorStore {
             m.role,
             m.entity_id,
             m.process_id,
+            m.process_id,
             m.session_id,
+            m.metadata_json,
             v.distance
         FROM vec_memories v
         JOIN memories m ON v.rowid = m.rowid
@@ -253,19 +266,30 @@ export class SqliteVecStore implements VectorStore {
       this.db.all(query, params, (err, rows: any[]) => {
         if (err) reject(new VectorStoreError("Search query failed", err));
         else {
-          const results: MemoryResult[] = rows.map((r) => ({
-            id: r.rowid.toString(),
-            content: r.content,
-            embedding: [], // Optimization: don't return embedding unless asked to save bandwidth
-            distance: r.distance,
-            metadata: {
-              role: r.role,
-              created_at: r.created_at,
-              entityId: r.entity_id,
-              processId: r.process_id,
-              sessionId: r.session_id,
-            },
-          }));
+          const results: MemoryResult[] = rows.map((r) => {
+            let parsedMetadata: any = {};
+            if (r.metadata_json) {
+              try {
+                parsedMetadata = JSON.parse(r.metadata_json);
+              } catch (e) {
+                // ignore
+              }
+            }
+            return {
+              id: r.rowid.toString(),
+              content: r.content,
+              embedding: [], // Optimization: don't return embedding unless asked to save bandwidth
+              distance: r.distance,
+              metadata: {
+                role: r.role,
+                created_at: r.created_at,
+                entityId: r.entity_id,
+                processId: r.process_id,
+                sessionId: r.session_id,
+                ...parsedMetadata,
+              },
+            };
+          });
           resolve(results);
         }
       });

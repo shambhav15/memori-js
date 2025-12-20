@@ -227,9 +227,35 @@ memori.attribution("user-123", "agent-sales");
 await memori.addMemory("I like apples."); // Stored with metadata
 
 // Search is filtered automatically
+// Search is filtered automatically
 const results = await memori.search("What do I like?");
 // returns "I like apples." ONLY for user-123
 ```
+
+### 5. CLaRa (Contextual Latent Retrieval augmented generation) 🆕
+
+**CLaRa** is an advanced optimization pipeline that compresses memories before storage and "reasons" about queries before search.
+
+- **Compression**: Turns "Um, I think my favorite color is like, blue?" into `favorite_color: blue`. Saves ~40% tokens.
+- **Reasoning**: Turns "What about that project?" into `Project Chimera status, deadlines`.
+
+```typescript
+const memori = new Memori({
+  // ...
+  clara: {
+    enableCompression: true,
+    enableReasoning: true,
+    // Optional: Use a dedicated fast model for compression (Groq/Ollama)
+    compressor: {
+      generate: async (prompt) => {
+        /* Call Llama 3 / Gemma 2 */
+      },
+    },
+  },
+});
+```
+
+> **Read the full [CLaRa Release Notes](./CLARA_RELEASE_NOTES.md) for benchmarks and implementation details.**
 
 ---
 

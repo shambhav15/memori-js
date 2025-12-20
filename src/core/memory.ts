@@ -17,6 +17,8 @@ const MemoriConfig = type({
   "embedding?": "unknown",
   "embeddingDimension?": "number",
   "logger?": "unknown",
+  "clara?": "unknown",
+  "llm?": "unknown", // { generate: (prompt: string) => Promise<string> }
 });
 
 export type MemoriOptions = typeof MemoriConfig.infer;
@@ -26,6 +28,7 @@ export type LLMProvider = "openai" | "google" | "anthropic";
 /**
  * Statistics for the last execution of context retrieval.
  */
+
 export interface ExecutionStats {
   lastRun?: {
     /** Number of memory chunks retrieved and injected */
@@ -34,7 +37,37 @@ export interface ExecutionStats {
     processingTimeMs: number;
     /** Timestamp of the operation */
     timestamp: string;
+    /** The actual query used for search (could be reasoned/modified) */
+    usedQuery?: string;
   };
+}
+
+export interface ClaraConfig {
+  /**
+   * Enable Memory Compression.
+   * If true, memories will be summarized/compressed before embedding.
+   * The original content is stored in metadata.
+   */
+  enableCompression?: boolean;
+
+  /**
+   * Enable Query Reasoning.
+   * If true, the user query will be processed to generate better search terms
+   * (e.g. hypothetical answers or keyword extraction) before searching.
+   */
+  enableReasoning?: boolean;
+
+  /** Custom prompt for the compression step */
+  compressorPrompt?: string;
+
+  /** Custom prompt for the reasoning step */
+  reasoningPrompt?: string;
+
+  /**
+   * Optional dedicated LLM for compression tasks (e.g. a smaller, faster model).
+   * If not provided, the main 'llm' provider will be used.
+   */
+  compressor?: { generate: (prompt: string) => Promise<string> };
 }
 
 /**
@@ -49,6 +82,8 @@ export class Memori {
   private entityId: string | null = null;
   private processId: string | null = null;
   private pendingPromises: Promise<any>[] = [];
+  private claraConfig?: ClaraConfig;
+  private internalLLM?: { generate: (prompt: string) => Promise<string> };
 
   /**
    * Public statistics object to track performance and usage.
@@ -144,6 +179,20 @@ export class Memori {
       }
     } else {
       throw new ConfigurationError("Missing configuration");
+    }
+
+    // CLaRa Setup
+    if (config.clara) {
+      this.claraConfig = config.clara as ClaraConfig;
+      if (config.llm) {
+        this.internalLLM = config.llm as {
+          generate: (prompt: string) => Promise<string>;
+        };
+      } else {
+        this.logger.warn(
+          "CLaRa is enabled but no 'llm' provider was passed in options. Compression and Reasoning will fail unless a generator is provided."
+        );
+      }
     }
 
     // Default Vector Store
@@ -244,23 +293,46 @@ export class Memori {
     let chunks = 0;
 
     try {
-      const results = await this.search(query, 5);
+      // CLaRa: Query Reasoning
+      let searchKey = query;
+      if (this.claraConfig?.enableReasoning && this.internalLLM) {
+        try {
+          const reasoned = await this.enhanceQuery(query);
+          if (reasoned) {
+            searchKey = reasoned;
+            this.logger.debug(`[CLaRa] Reasoned Query: "${reasoned}"`);
+          }
+        } catch (e) {
+          this.logger.warn(
+            "Query reasoning failed, falling back to original",
+            e
+          );
+        }
+      }
+
+      const results = await this.search(searchKey, 5);
       chunks = results.length;
       if (chunks > 0) {
         context = results
           .map((r) => `- ${r.content} (score: ${r.distance})`)
           .join("\n");
       }
+
+      // Update stats with used query
+      if (!this.stats.lastRun) this.stats.lastRun = {} as any;
+      // @ts-ignore
+      this.stats.lastRun.usedQuery = searchKey;
     } catch (e) {
       this.logger.error("Memori search failed:", e);
       // Fail gracefully for context retrieval so the chat doesn't crash
     }
 
     this.stats.lastRun = {
+      ...(this.stats.lastRun || {}),
       contextChunks: chunks,
       processingTimeMs: Date.now() - start,
       timestamp: new Date().toISOString(),
-    };
+    } as any;
 
     return context;
   }
@@ -514,13 +586,32 @@ export class Memori {
    * Generates embedding and persists it.
    */
   async addMemory(content: string, role = "user") {
-    const embedding = await this.getEmbedding(content);
-    return await this.db.insert(content, embedding, {
+    let contentToEmbed = content;
+    let metadata: any = {
       role,
       entityId: this.entityId || undefined,
       processId: this.processId || undefined,
-      // sessionId: this.sessionId // TODO: Add session management
-    });
+    };
+
+    // CLaRa: Memory Compression
+    if (this.claraConfig?.enableCompression && this.internalLLM) {
+      try {
+        const compressed = await this.compressContent(content);
+        if (compressed) {
+          this.logger.debug(
+            `[CLaRa] Compressed memory: ${content.length} chars -> ${compressed.length} chars`
+          );
+          contentToEmbed = compressed;
+          metadata.original_content = content;
+          metadata.is_compressed = true;
+        }
+      } catch (e) {
+        this.logger.warn("Memory compression failed, using original", e);
+      }
+    }
+
+    const embedding = await this.getEmbedding(contentToEmbed);
+    return await this.db.insert(contentToEmbed, embedding, metadata);
   }
 
   /**
@@ -540,5 +631,50 @@ export class Memori {
    */
   private async getEmbedding(text: string): Promise<number[]> {
     return await this.embeddingProvider.embed(text);
+  }
+
+  // --- CLaRa Helpers ---
+
+  /**
+   * [CLaRa] Memory Compression Step.
+   *
+   * Compresses the incoming raw text content into a dense set of facts.
+   * This reduces vector noise (by removing conversational fluff) and improves
+   * information density in the context window.
+   *
+   * Strategy:
+   * - Uses a dedicated 'compressor' LLM if configured, otherwise falls back to the main LLM.
+   * - Appends the content to a strict instruction prompt.
+   * - Returns the compressed facts to be embedded instead of the raw text.
+   */
+  private async compressContent(content: string): Promise<string> {
+    const generator = this.claraConfig?.compressor || this.internalLLM;
+    if (!generator) return content;
+
+    const instruction =
+      this.claraConfig?.compressorPrompt ||
+      `Compress the following text into a concise, dense set of facts. Preserve all key entities, dates, and numbers. Remove fluff.`;
+
+    const prompt = `${instruction}\n\nText:\n${content}`;
+
+    return await generator.generate(prompt);
+  }
+
+  /**
+   * [CLaRa] Query Reasoning Step.
+   *
+   * Enhances the raw user query ("What did we say about the project?") into a
+   * semantically richer search query ("Project Chimera deadlines, launch date, server migration").
+   *
+   * This solves the "Keyword Mismatch" problem where the user asks a vague question
+   * that doesn't vector-match the specific details in the database.
+   */
+  private async enhanceQuery(query: string): Promise<string> {
+    if (!this.internalLLM) return query;
+    const prompt =
+      this.claraConfig?.reasoningPrompt ||
+      `You are an AI memory optimizer. The user is asking: "${query}".\nGenerate 3-5 specific keywords, hypothetical facts, or a rephrased query that would best help retrieve the answer from a vector database. Output ONLY the search terms/query.`;
+
+    return await this.internalLLM.generate(prompt);
   }
 }
