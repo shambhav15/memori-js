@@ -1,4 +1,4 @@
-# CLaRa Integration Release Notes (v0.2.0)
+# CLaRa Integration Release Notes (v1.1.0)
 
 ## Overview
 
