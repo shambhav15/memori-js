@@ -54,3 +54,6 @@ memori.db-shm
 memori.db-wal   
 memori.db
 
+# Documentation
+SEMVER_GUIDE.md
+
