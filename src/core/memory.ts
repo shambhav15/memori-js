@@ -88,13 +88,7 @@ export class Memori {
   /**
    * Public statistics object to track performance and usage.
    */
-  public stats: {
-    lastRun?: {
-      contextChunks: number;
-      processingTimeMs: number;
-      timestamp: string;
-    };
-  } = {};
+  public stats: ExecutionStats = {};
 
   /**
    * Configuration helper.
@@ -676,5 +670,55 @@ export class Memori {
       `You are an AI memory optimizer. The user is asking: "${query}".\nGenerate 3-5 specific keywords, hypothetical facts, or a rephrased query that would best help retrieve the answer from a vector database. Output ONLY the search terms/query.`;
 
     return await this.internalLLM.generate(prompt);
+  }
+  // --- Key-Value Store & Reactivity ---
+
+  private kv = new Map<string, any>();
+  private listeners = new Set<(key: string, value: any) => void>();
+
+  /**
+   * Subscribes to changes in the key-value store.
+   * @param listener - Callback function to invoke on change.
+   * @returns Unsubscribe function.
+   */
+  public subscribe(listener: (key: string, value: any) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private emitChange(key: string, value: any) {
+    this.listeners.forEach((l) => l(key, value));
+  }
+
+  /**
+   * Sets a value in the in-memory key-value store.
+   * Triggers change events for reactivity.
+   * @param key - The key.
+   * @param value - The value to store.
+   */
+  public set<T = any>(key: string, value: T): void {
+    this.kv.set(key, value);
+    this.emitChange(key, value);
+  }
+
+  /**
+   * Retrieves a value from the in-memory key-value store.
+   * @param key - The key.
+   * @returns The value or undefined.
+   */
+  public get<T = any>(key: string): T | undefined {
+    return this.kv.get(key) as T;
+  }
+
+  /**
+   * Deletes a value from the in-memory key-value store.
+   * Triggers change events (value will be undefined).
+   * @param key - The key to delete.
+   */
+  public delete(key: string): void {
+    this.kv.delete(key);
+    this.emitChange(key, undefined);
   }
 }
