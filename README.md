@@ -259,6 +259,46 @@ const memori = new Memori({
 
 ---
 
+## ⚛️ React Integration
+
+Memori now ships with a first-class React wrapper that provides **Global Configuration**, **Reactivity**, and **Cross-Tab Synchronization**.
+
+### 1. Setup Provider
+
+Wrap your application with the `MemoriProvider`.
+
+```tsx
+import { MemoriProvider } from "memori-js/react";
+
+function App() {
+  return (
+    <MemoriProvider config={{ apiKey: process.env.MEMORI_API_KEY }}>
+      <YourApp />
+    </MemoriProvider>
+  );
+}
+```
+
+### 2. useMemori Hook
+
+Use the `useMemori` hook to read and write persistent data. This data is synced automatically across all open tabs and triggers re-renders on change.
+
+```tsx
+import { useMemori } from "memori-js/react";
+
+function ThemeToggler() {
+  // Syncs with localStorage and other tabs instantly!
+  const { data: theme, set } = useMemori("user-theme", "light");
+
+  return (
+    <button onClick={() => set(theme === "light" ? "dark" : "light")}>
+      Current: {theme}
+    </button>
+  );
+}
+```
+
+
 ## 💡 Philosophy
 
 Most "Memory" libraries are just complex wrappers around vector stores. `memori-js` takes a different approach: **Memory should be invisible.**
